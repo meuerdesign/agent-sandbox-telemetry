@@ -1,0 +1,84 @@
+name: telemetry
+
+# Persistent observability stack for the agent sandboxes.
+# Only Caddy is exposed to the host (80/443); everything else is internal.
+# Boxes push OTLP -> https://telemetry.example.com/v1/*  (token-gated by the collector).
+
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [otel-collector, grafana]
+    networks: [tnet]
+
+  otel-collector:
+    # 0.116.0 was a broken release (CGO-on -> dynamic binary in a scratch base ->
+    # "exec: no such file or directory"). Fixed in 0.116.1. Do not pin 0.116.0.
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      INGEST_TOKEN: ${INGEST_TOKEN}
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    expose: ["4318"]
+    depends_on: [prometheus, loki]
+    networks: [tnet]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=90d"
+      - "--web.enable-remote-write-receiver"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    expose: ["9090"]
+    networks: [tnet]
+
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    expose: ["3100"]
+    networks: [tnet]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: https://${DOMAIN}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    expose: ["3000"]
+    depends_on: [prometheus, loki]
+    networks: [tnet]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  loki_data:
+  grafana_data:
+
+networks:
+  tnet:

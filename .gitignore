@@ -1,0 +1,6 @@
+.env
+agent-otel.env
+*.local
+data/
+caddy_data/
+caddy_config/

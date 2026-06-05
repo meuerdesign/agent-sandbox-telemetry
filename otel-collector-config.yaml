@@ -1,0 +1,43 @@
+# OpenTelemetry Collector (contrib) config.
+# Receives OTLP/HTTP from the agent boxes (token-gated), fans out:
+#   metrics -> Prometheus (remote-write)
+#   logs/events -> Loki (OTLP)
+
+extensions:
+  # Validates the incoming `Authorization: Bearer <token>` header.
+  bearertokenauth/server:
+    token: ${env:INGEST_TOKEN}
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth/server
+        # gRPC intentionally not enabled - boxes use http/protobuf via Caddy.
+
+processors:
+  batch: {}
+
+exporters:
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    resource_to_telemetry_conversion:
+      enabled: true   # turn resource attrs (e.g. box.name) into metric labels
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  debug:
+    verbosity: basic
+
+service:
+  extensions: [bearertokenauth/server]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki]

@@ -1,0 +1,21 @@
+# Reverse proxy + automatic HTTPS for the telemetry stack.
+# One host, path-routed:
+#   /v1/*  -> otel-collector (OTLP ingest from the agent boxes)
+#   /*     -> Grafana (your dashboards)
+#
+# Caddy fetches a Let's Encrypt cert automatically once DNS for $DOMAIN
+# points at this VPS and ports 80/443 are reachable.
+
+{
+	# Set ACME_EMAIL in .env and uncomment for expiry notices (optional):
+	# email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	handle /v1/* {
+		reverse_proxy otel-collector:4318
+	}
+	handle {
+		reverse_proxy grafana:3000
+	}
+}

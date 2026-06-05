@@ -1,0 +1,48 @@
+#cloud-config
+# First-boot provisioning for the telemetry collector VPS: Docker + host hardening.
+# The stack itself is copied up and started manually (see provision-vps.sh output).
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - fail2ban
+  - unattended-upgrades
+
+write_files:
+  # SSH hardening: key-only, no passwords, root via key only, fewer auth tries.
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    permissions: '0644'
+    content: |
+      PermitRootLogin prohibit-password
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      X11Forwarding no
+      MaxAuthTries 3
+
+  # Automatic security updates.
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  # fail2ban: ban SSH brute-forcers (defense in depth on top of key-only auth).
+  - path: /etc/fail2ban/jail.d/sshd.local
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 4
+      findtime = 10m
+      bantime = 1h
+
+runcmd:
+  - [ sh, -c, "curl -fsSL https://get.docker.com | sh" ]
+  - sh -c "systemctl restart ssh 2>/dev/null || systemctl restart sshd"
+  - systemctl enable --now fail2ban
+  - systemctl enable --now unattended-upgrades
+  - mkdir -p /opt/telemetry
+  - touch /opt/telemetry/.provisioned
